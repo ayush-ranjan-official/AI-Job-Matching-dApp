@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { getContract } from '../utils/web3';
-import { extractSkillsFromDescription } from '../utils/llmService';
+import { generateJobDescriptionFromSkills } from '../utils/llmService';
 
 export default function PostJob() {
   const router = useRouter();
@@ -15,9 +15,9 @@ export default function PostJob() {
     salary: '',
   });
   const [loading, setLoading] = useState(false);
-  const [extractingSkills, setExtractingSkills] = useState(false);
+  const [generatingDescription, setGeneratingDescription] = useState(false);
   const [error, setError] = useState('');
-  const [skillExtractionError, setSkillExtractionError] = useState('');
+  const [descriptionGenerationError, setDescriptionGenerationError] = useState('');
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     const { name, value } = e.target;
@@ -25,36 +25,27 @@ export default function PostJob() {
   };
 
   const extractSkills = async () => {
-    if (!formData.description) {
-      setSkillExtractionError('Please enter a job description first');
+    if (!formData.skills) {
+      setDescriptionGenerationError('Please enter required skills first');
       return;
     }
 
     try {
-      setExtractingSkills(true);
-      setSkillExtractionError('');
+      setGeneratingDescription(true);
+      setDescriptionGenerationError('');
       
-      const result = await extractSkillsFromDescription(formData.description);
+      const result = await generateJobDescriptionFromSkills(formData.skills, formData.title);
       
       if (result.success) {
-        // Clean up the response and convert to a properly formatted comma-separated list
-        const skillsArray = result.response
-          .split(',')
-          .map(skill => skill.trim())
-          .filter(skill => skill.length > 0);
-        
-        // Join the array back into a comma-separated string
-        const formattedSkills = skillsArray.join(', ');
-        
-        setFormData(prev => ({ ...prev, skills: formattedSkills }));
+        setFormData(prev => ({ ...prev, description: result.response }));
       } else {
-        setSkillExtractionError(result.error || 'Failed to extract skills. Please try again or enter skills manually.');
+        setDescriptionGenerationError(result.error || 'Failed to generate job description. Please try again or enter description manually.');
       }
     } catch (err: any) {
-      console.error("Error extracting skills:", err);
-      setSkillExtractionError(err.message || 'An error occurred while extracting skills');
+      console.error("Error generating job description:", err);
+      setDescriptionGenerationError(err.message || 'An error occurred while generating job description');
     } finally {
-      setExtractingSkills(false);
+      setGeneratingDescription(false);
     }
   };
 
@@ -124,50 +115,50 @@ export default function PostJob() {
         </div>
         
         <div>
-          <label htmlFor="description" className="block mb-1 font-medium">
-            Job Description
-          </label>
-          <textarea
-            id="description"
-            name="description"
-            value={formData.description}
-            onChange={handleChange}
-            required
-            rows={4}
-            className="w-full px-3 py-2 border rounded-md"
-          />
-        </div>
-        
-        <div>
           <label htmlFor="skills" className="block mb-1 font-medium">
             Required Skills (comma-separated)
           </label>
-          <div className="flex gap-2">
-            <input
-              type="text"
-              id="skills"
-              name="skills"
-              value={formData.skills}
+          <input
+            type="text"
+            id="skills"
+            name="skills"
+            value={formData.skills}
+            onChange={handleChange}
+            required
+            placeholder="e.g. JavaScript, React, Solidity"
+            className="w-full px-3 py-2 border rounded-md"
+          />
+          <p className="text-xs text-gray-500 mt-1">
+            Click "Generate Description" to use AI to create a job description from these skills
+          </p>
+        </div>
+        
+        <div>
+          <label htmlFor="description" className="block mb-1 font-medium">
+            Job Description
+          </label>
+          <div className="flex flex-col gap-2">
+            <textarea
+              id="description"
+              name="description"
+              value={formData.description}
               onChange={handleChange}
               required
-              placeholder="e.g. JavaScript, React, Solidity"
+              rows={4}
               className="w-full px-3 py-2 border rounded-md"
             />
             <button
               type="button"
               onClick={extractSkills}
-              disabled={extractingSkills || !formData.description}
-              className="bg-gray-200 hover:bg-gray-300 px-3 py-2 rounded disabled:opacity-50"
+              disabled={generatingDescription || !formData.skills}
+              className="bg-gray-200 hover:bg-gray-300 px-3 py-2 rounded disabled:opacity-50 self-start"
             >
-              {extractingSkills ? 'Extracting...' : 'Extract Skills'}
+              {generatingDescription ? 'Generating...' : 'Generate Description'}
             </button>
           </div>
-          {skillExtractionError && (
-            <p className="text-red-600 text-sm mt-1">{skillExtractionError}</p>
+          {descriptionGenerationError && (
+            <p className="text-red-600 text-sm mt-1">{descriptionGenerationError}</p>
           )}
-          <p className="text-xs text-gray-500 mt-1">
-            Click "Extract Skills" to use AI to extract skills from your job description
-          </p>
         </div>
         
         <div>
