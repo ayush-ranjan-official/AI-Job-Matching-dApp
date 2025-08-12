@@ -49,6 +49,9 @@ export default function Header() {
       </Link>
       
       <nav className="flex items-center space-x-6">
+        <Link href="/deploy" className="hover:text-blue-300 mx-2 no-underline">
+        Deploy on Oyster&nbsp;&nbsp;
+        </Link>
         <Link href="/jobs" className="hover:text-blue-300 mx-2 no-underline">
         Browse Jobs&nbsp;&nbsp;
         </Link>
