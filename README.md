@@ -35,40 +35,12 @@ job-marketplace/
 - npm or yarn
 - MetaMask extension installed in your browser
 
-### Smart Contract Deployment
-
-1. Navigate to the contracts directory:
-
-```bash
-cd job-marketplace/contracts
-```
-
-2. Install dependencies:
-
-```bash
-npm install
-```
-
-3. Start a local Hardhat node:
-
-```bash
-npx hardhat node
-```
-
-4. In a new terminal, deploy the contract to the local network:
-
-```bash
-npx hardhat run scripts/deploy.ts --network localhost
-```
-
-This will output the deployed contract address, which you'll need for the frontend.
-
 ### Frontend Setup
 
 1. Navigate to the frontend directory:
 
 ```bash
-cd job-marketplace/frontend
+cd AI-job-Matching-dApp/
 ```
 
 2. Install dependencies:
