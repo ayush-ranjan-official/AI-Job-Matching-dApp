@@ -1,105 +1,196 @@
 'use client';
 
-import { useState } from 'react';
-import { verifyEnclaveResponse } from '../utils/web3';
+import { useState } from "react";
 import { ethers } from "ethers";
+
+const USDC_ADDRESS = "0xaf88d065e77c8cC2239327C5EDb3A432268e5831";
+const OYSTER_MARKET_ADDRESS = "0x9d95D61eA056721E358BC49fE995caBF3B86A34B";
+
+// RPC URL for Arbitrum mainnet
+const arbRpcUrl = "https://arb1.arbitrum.io/rpc";
+
+// Your wallet private key (keep this secure, use env var)
+const privateKey = process.env.NEXT_PUBLIC_PRIVATE_KEY as string;
+
+// Provider
+const provider = new ethers.JsonRpcProvider(arbRpcUrl);
+const signer = new ethers.Wallet(privateKey, provider);
+const operator = "0xe10fa12f580e660ecd593ea4119cebc90509d642"
+
+import USDC_ABI from "./../../abis/token_abi.json";
+import OYSTER_MARKET_ABI from "./../../abis/oyster_market_abi.json";
+
+const API_BASE = "http://13.202.229.168:8080";
+const REGION = "ap-south-1";
+const IP_CHECK_RETRIES = 15; // same as Rust, configurable
+const IP_CHECK_INTERVAL = 5000; // 5 seconds
+
+// Global variable to store the IP
+let globalJobIp: string | null = null;
+
+export function getGlobalJobIp() {
+  return globalJobIp;
+}
+
 
 export default function DeployOnOyster() {
   const [loading, setLoading] = useState(false);
-  const [result, setResult] = useState<boolean | null>(null);
-  const [error, setError] = useState<string>('');
+  const [message, setMessage] = useState("");
+  const [ip, setIp] = useState<string | null>(null);
 
-  const handleDeployOnOyster = async () => {
+  async function approveUSDC(amount: bigint, signer: ethers.Signer) {
+    const usdc = new ethers.Contract(USDC_ADDRESS, USDC_ABI, signer);
+    const signerAddr = await signer.getAddress();
+
+    const currentAllowance: bigint = await usdc.allowance(
+      signerAddr,
+      OYSTER_MARKET_ADDRESS
+    );
+
+    if (currentAllowance < amount) {
+      const tx = await usdc.approve(OYSTER_MARKET_ADDRESS, amount);
+      await tx.wait();
+      console.log("USDC approved:", tx.hash);
+    } else {
+      console.log("Allowance already sufficient");
+    }
+  }
+
+  async function createNewOysterJob(
+    metadata: string,
+    providerAddr: string,
+    rate: bigint,
+    balance: bigint,
+    signer: ethers.Signer
+  ) {
+    const market = new ethers.Contract(
+      OYSTER_MARKET_ADDRESS,
+      OYSTER_MARKET_ABI.abi,
+      signer
+    );
+
+    const tx = await market.jobOpen(metadata, providerAddr, rate, balance);
+    const receipt = await tx.wait();
+    console.log("Job created:", tx.hash);
+
+    const jobOpenedTopic = ethers.id(
+      "JobOpened(bytes32,string,address,address,uint256,uint256,uint256)"
+    );
+
+    const log = receipt.logs.find((l: any) => l.topics[0] === jobOpenedTopic);
+
+    if (log) {
+      const jobId = log.topics[1];
+      console.log("Found JobOpened event! Job ID:", jobId);
+      return { receipt, jobId };
+    }
+
+    console.warn("JobOpened event not found in receipt");
+    return { receipt, jobId: null };
+  }
+
+  async function fetchJobIp(jobId: string) {
+    let lastResponse = "";
+    for (let attempt = 1; attempt <= IP_CHECK_RETRIES; attempt++) {
+      console.log(`Checking for IP (attempt ${attempt}/${IP_CHECK_RETRIES})`);
+      try {
+        const targetUrl = `${API_BASE}/ip?id=${jobId}&region=${REGION}`;
+
+        // go through proxy
+        const proxyUrl = `https://getattestation.hostedapp.work/get_ip?url=${encodeURIComponent(targetUrl)}`;
+
+        const resp = await fetch(proxyUrl);
+
+        const text = await resp.text();
+        lastResponse = text;
+
+        let json: any;
+        try {
+          json = JSON.parse(text);
+        } catch (err) {
+          console.error("Failed to parse response:", text);
+          continue;
+        }
+
+        console.log("Response from IP endpoint (via proxy):", json);
+
+        if (json.ip && json.ip !== "") {
+          setIp(json.ip);
+          return json.ip;
+        }
+      } catch (err) {
+        console.error("Error fetching IP:", err);
+      }
+
+      console.log(`IP not found yet, waiting ${IP_CHECK_INTERVAL / 1000}s...`);
+      await new Promise((res) => setTimeout(res, IP_CHECK_INTERVAL));
+    }
+
+    throw new Error(`IP not found after ${IP_CHECK_RETRIES} attempts. Last response: ${lastResponse}`);
+  }
+
+  const handleDeploy = async () => {
     setLoading(true);
-    setError('');
-    setResult(null);
+    setMessage("");
+    setIp(null);
 
     try {
-      // Example test data - you can modify these values
-      const receiptData = ethers.AbiCoder.defaultAbiCoder().encode(
-        ['string', 'string', 'string', 'string', 'string'],
-        [
-          'llama3.2',
-          'What is Ethereum? And remember to not include quotation mark anywhere in your response',
-          '[]',
-          'Ethereum is a decentralized, open-source blockchain platform that enables the creation of smart contracts and decentralized applications (dApps). It was founded in 2014 by Vitalik Buterin and has since become one of the largest and most widely used blockchain platforms in the world.\n\nEthereum\'s core innovation is its use of a programming language called Solidity, which allows developers to write and deploy self-executing contracts with the help of a virtual machine (VM). These smart contracts can automate various processes and interactions between parties, reducing the need for intermediaries and increasing transparency and efficiency.\n\nThe Ethereum network itself is maintained by a decentralized network of nodes that validate transactions and execute smart contracts. This decentralized nature allows for secure, transparent, and censorship-resistant transactions and the execution of smart contracts without relying on a central authority.\n\nEthereum also has its own cryptocurrency called Ether (ETH), which is used to pay for transaction fees and computational services provided by the Ethereum network. The network\'s total supply of Ether is capped at 21 million, making it a valuable store of value and a popular choice for investors.\n\nOverall, Ethereum\'s unique combination of smart contracts, decentralized applications, and its own cryptocurrency has made it a leading player in the blockchain space and a popular platform for developers to build and deploy innovative dApps.',
-          '[128006,9125,128007,271,38766,1303,33025,2696,25,6790,220,2366,18,271,128009,128006,882,128007,271,3923,374,35046,30,1628,6227,311,539,2997,55331,1906,12660,304,701,2077,128009,128006,78191,128007,271,36,19041,372,374,264,49063,11,1825,31874,18428,5452,430,20682,279,9886,315,7941,17517,323,49063,8522,320,67,54702,570,1102,574,18538,304,220,679,19,555,55371,1609,2030,85509,323,706,2533,3719,832,315,279,7928,323,1455,13882,1511,18428,15771,304,279,1917,382,36,19041,372,596,6332,19297,374,1202,1005,315,264,15840,4221,2663,22925,488,11,902,6276,13707,311,3350,323,10739,659,71821,10831,17517,449,279,1520,315,264,4200,5780,320,11435,570,4314,7941,17517,649,69711,5370,11618,323,22639,1990,9875,11,18189,279,1205,369,55275,5548,323,7859,28330,323,15374,382,791,35046,4009,5196,374,18908,555,264,49063,4009,315,7954,430,9788,14463,323,9203,7941,17517,13,1115,49063,7138,6276,369,9966,11,18300,11,323,52988,47056,14463,323,279,11572,315,7941,17517,2085,39661,389,264,8792,11447,382,36,19041,372,1101,706,1202,1866,27128,2663,35978,320,7780,705,902,374,1511,311,2343,369,7901,12718,323,55580,3600,3984,555,279,35046,4009,13,578,4009,596,2860,8312,315,35978,374,61246,520,220,1691,3610,11,3339,433,264,15525,3637,315,907,323,264,5526,5873,369,15167,382,28589,11,35046,596,5016,10824,315,7941,17517,11,49063,8522,11,323,1202,1866,27128,706,1903,433,264,6522,2851,304,279,18428,3634,323,264,5526,5452,369,13707,311,1977,323,10739,18699,294,54702,13]'
-        ]
-      );
-      //const receiptData = "0x00000000000000000000000000000000000000000000000000000000000000a000000000000000000000000000000000000000000000000000000000000000e0000000000000000000000000000000000000000000000000000000000000016000000000000000000000000000000000000000000000000000000000000001a000000000000000000000000000000000000000000000000000000000000007a000000000000000000000000000000000000000000000000000000000000000086c6c616d61332e3200000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000565768617420697320457468657265756d3f20416e642072656d656d62657220746f206e6f7420696e636c7564652071756f746174696f6e206d61726b20616e79776865726520696e20796f757220726573706f6e73650000000000000000000000000000000000000000000000000000000000000000000000000000000000025b5d00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000005d5457468657265756d206973206120646563656e7472616c697a65642c206f70656e2d736f7572636520626c6f636b636861696e20706c6174666f726d207468617420656e61626c657320746865206372656174696f6e206f6620736d61727420636f6e74726163747320616e6420646563656e7472616c697a6564206170706c69636174696f6e7320286441707073292e2049742077617320666f756e64656420696e203230313420627920566974616c696b204275746572696e20616e64206861732073696e6365206265636f6d65206f6e65206f6620746865206c61726765737420616e64206d6f737420776964656c79207573656420626c6f636b636861696e20706c6174666f726d7320696e2074686520776f726c642e0a0a457468657265756d277320636f726520696e6e6f766174696f6e2069732069747320757365206f6620612070726f6772616d6d696e67206c616e67756167652063616c6c656420536f6c69646974792c20776869636820616c6c6f777320646576656c6f7065727320746f20777269746520616e64206465706c6f792073656c662d657865637574696e6720636f6e7472616374732077697468207468652068656c70206f662061207669727475616c206d616368696e652028564d292e20546865736520736d61727420636f6e7472616374732063616e206175746f6d61746520766172696f75732070726f63657373657320616e6420696e746572616374696f6e73206265747765656e20706172746965732c207265647563696e6720746865206e65656420666f7220696e7465726d656469617269657320616e6420696e6372656173696e67207472616e73706172656e637920616e6420656666696369656e63792e0a0a54686520457468657265756d206e6574776f726b20697473656c66206973206d61696e7461696e6564206279206120646563656e7472616c697a6564206e6574776f726b206f66206e6f64657320746861742076616c6964617465207472616e73616374696f6e7320616e64206578656375746520736d61727420636f6e7472616374732e205468697320646563656e7472616c697a6564206e617475726520616c6c6f777320666f72207365637572652c207472616e73706172656e742c20616e642063656e736f72736869702d726573697374616e74207472616e73616374696f6e7320616e642074686520657865637574696f6e206f6620736d61727420636f6e74726163747320776974686f75742072656c79696e67206f6e20612063656e7472616c20617574686f726974792e0a0a457468657265756d20616c736f2068617320697473206f776e2063727970746f63757272656e63792063616c6c65642045746865722028455448292c207768696368206973207573656420746f2070617920666f72207472616e73616374696f6e206665657320616e6420636f6d7075746174696f6e616c2073657276696365732070726f76696465642062792074686520457468657265756d206e6574776f726b2e20546865206e6574776f726b277320746f74616c20737570706c79206f6620457468657220697320636170706564206174203231206d696c6c696f6e2c206d616b696e6720697420612076616c7561626c652073746f7265206f662076616c756520616e64206120706f70756c61722063686f69636520666f7220696e766573746f72732e0a0a4f766572616c6c2c20457468657265756d277320756e6971756520636f6d62696e6174696f6e206f6620736d61727420636f6e7472616374732c20646563656e7472616c697a6564206170706c69636174696f6e732c20616e6420697473206f776e2063727970746f63757272656e637920686173206d6164652069742061206c656164696e6720706c6179657220696e2074686520626c6f636b636861696e20737061636520616e64206120706f70756c617220706c6174666f726d20666f7220646576656c6f7065727320746f206275696c6420616e64206465706c6f7920696e6e6f7661746976652064417070732e000000000000000000000000000000000000000000000000000000000000000000000000000000000005a45b3132383030362c393132352c3132383030372c3237312c33383736362c313330332c33333032352c323639362c32352c363739302c3232302c323336362c31382c3237312c3132383030392c3132383030362c3838322c3132383030372c3237312c333932332c3337342c33353034362c33302c313632382c363232372c3331312c3533392c323939372c35353333312c313930362c31323636302c3330342c3730312c323037372c3132383030392c3132383030362c37383139312c3132383030372c3237312c33362c31393034312c3337322c3337342c3236342c34393036332c31312c313832352c33313837342c31383432382c353435322c3433302c32303638322c3237392c393838362c3331352c373934312c31373531372c3332332c34393036332c383532322c3332302c36372c35343730322c3537302c313130322c3537342c31383533382c3330342c3232302c3637392c31392c3535352c35353337312c313630392c323033302c38353530392c3332332c3730362c323533332c333731392c3833322c3331352c3237392c373932382c3332332c313435352c31333838322c313531312c31383432382c31353737312c3330342c3237392c313931372c3338322c33362c31393034312c3337322c3539362c363333322c31393239372c3337342c313230322c313030352c3331352c3236342c31353834302c343232312c323636332c32323932352c3438382c31312c3930322c363237362c31333730372c3331312c333335302c3332332c31303733392c3635392c37313832312c31303833312c31373531372c3434392c3237392c313532302c3331352c3236342c343230302c353738302c3332302c31313433352c3537302c343331342c373934312c31373531372c3634392c36393731312c353337302c31313631382c3332332c32323633392c313939302c393837352c31312c31383138392c3237392c313230352c3336392c35353237352c353534382c3332332c373835392c32383333302c3332332c31353337342c3338322c3739312c33353034362c343030392c353139362c3337342c31383930382c3535352c3236342c34393036332c343030392c3331352c373935342c3433302c393738382c31343436332c3332332c393230332c373934312c31373531372c31332c313131352c34393036332c373133382c363237362c3336392c393936362c31312c31383330302c31312c3332332c35323938382c34373035362c31343436332c3332332c3237392c31313537322c3331352c373934312c31373531372c323038352c33393636312c3338392c3236342c383739322c31313434372c3338322c33362c31393034312c3337322c313130312c3730362c313230322c313836362c32373132382c323636332c33353937382c3332302c373738302c3730352c3930322c3337342c313531312c3331312c323334332c3336392c373930312c31323731382c3332332c35353538302c333630302c333938342c3535352c3237392c33353034362c343030392c31332c3537382c343030392c3539362c323836302c383331322c3331352c33353937382c3337342c36313234362c3532302c3232302c313639312c333631302c31312c333333392c3433332c3236342c31353532352c333633372c3331352c3930372c3332332c3236342c353532362c353837332c3336392c31353136372c3338322c32383538392c31312c33353034362c3539362c353031362c31303832342c3331352c373934312c31373531372c31312c34393036332c383532322c31312c3332332c313230322c313836362c32373132382c3730362c313930332c3433332c3236342c363532322c323835312c3330342c3237392c31383432382c333633342c3332332c3236342c353532362c353435322c3336392c31333730372c3331312c313937372c3332332c31303733392c31383639392c3239342c35343730322c31335d00000000000000000000000000000000000000000000000000000000";
-      const timestamp = BigInt(1755442433);
-      const signature = "0x17225793cfa546075b48a6047181e7b683db4368b4a8c52ad6ddc3e118ad23b777623f76cce39ddb6a3bedfd57aecb2708a98ccf0207642a88a8528aa4f299501b";
-      const enclavePubKey = "0xb990499913118ce3e18b0158c2b1b404207d9bbe896225cc4387c6c413072029e86fb9e689ce6d4085ea2b3ee9ff5625e84dda92e56b231ed77fd6bed1722e0a";
 
-      console.log('Calling verifyEnclaveResponse with test data...');
-      console.log('Receipt Data length:', receiptData.length);
-      console.log('Timestamp:', timestamp.toString());
-      console.log('Signature length:', signature.length);
-      console.log('Public Key length:', enclavePubKey.length);
-      
-      const verificationResult = await verifyEnclaveResponse(
-        receiptData,
-        timestamp,
-        signature,
-        enclavePubKey
+      const balance = BigInt("80576");
+      await approveUSDC(balance, signer);
+
+      const metadataObj = {
+        debug: false,
+        family: "tuna",
+        init_params: "ewogICJkaWdlc3QiOiAicDFZZmJJMGFrR052dFdGNlBjRzRJRDJGY28wVXZVNnFXMXdjTFFIbWxodz0iLAogICJwYXJhbXMiOiBbCiAgICB7CiAgICAgICJwYXRoIjogImRvY2tlci1jb21wb3NlLnltbCIsCiAgICAgICJjb250ZW50cyI6ICJjMlZ5ZG1salpYTTZDaUFnSXlCc2JHRnRZU0J3Y205NGVTQnpaWEoyYVdObENpQWdiR3hoYldGZmNISnZlSGs2Q2lBZ0lDQnBiV0ZuWlRvZ2EyRnNjR2wwWVRnNE9DOXZiR3hoYldGZllYSnROalE2TUM0d0xqRWdJQ0FnSUNBZ0lDQWdJQ0FnSUNBZ0lDQWdJQ0FnSUNBaklFWnZjaUJoY20wMk5DQnplWE4wWlcwZ2RYTmxJR3RoYkhCcGRHRTRPRGd2YjJ4c1lXMWhYMkZ5YlRZME9qQXVNQzR4SUdGdVpDQm1iM0lnWVcxa05qUWdjM2x6ZEdWdElIVnpaU0JyWVd4d2FYUmhPRGc0TDI5c2JHRnRZVjloYldRMk5Eb3dMakF1TVFvZ0lDQWdZMjl1ZEdGcGJtVnlYMjVoYldVNklHeHNZVzFoWDNCeWIzaDVDaUFnSUNCcGJtbDBPaUIwY25WbENpQWdJQ0J1WlhSM2IzSnJYMjF2WkdVNklHaHZjM1FLSUNBZ0lIWnZiSFZ0WlhNNkNpQWdJQ0FnSUMwZ0wyRndjQzlsWTJSellTNXpaV002TDJGd2NDOXpaV053TG5ObFl3b0tJQ0FqSUU5c2JHRnRZU0J6WlhKMmFXTmxDaUFnYjJ4c1lXMWhYM05sY25abGNqb0tJQ0FnSUdsdFlXZGxPaUJoYkhCcGJtVXZiMnhzWVcxaE9qQXVNVEF1TVFvZ0lDQWdZMjl1ZEdGcGJtVnlYMjVoYldVNklHOXNiR0Z0WVY5elpYSjJaWElLSUNBZ0lHbHVhWFE2SUhSeWRXVUtJQ0FnSUc1bGRIZHZjbXRmYlc5a1pUb2dhRzl6ZEFvZ0lDQWdhR1ZoYkhSb1kyaGxZMnM2Q2lBZ0lDQWdJSFJsYzNRNklGc2lRMDFFTFZOSVJVeE1JaXdnSW05c2JHRnRZU0F0TFhabGNuTnBiMjRpWFFvZ0lDQWdJQ0JwYm5SbGNuWmhiRG9nTVRCekNpQWdJQ0FnSUhKbGRISnBaWE02SURNS0NpQWdJeUJQYkd4aGJXRWdiVzlrWld3Z2NuVnVDaUFnYjJ4c1lXMWhYMjF2WkdWc09nb2dJQ0FnYVcxaFoyVTZJR0ZzY0dsdVpTOXZiR3hoYldFNk1DNHhNQzR4Q2lBZ0lDQmpiMjUwWVdsdVpYSmZibUZ0WlRvZ2IyeHNZVzFoWDIxdlpHVnNYMnhzWVcxaE15NHlDaUFnSUNCamIyMXRZVzVrT2lCd2RXeHNJR3hzWVcxaE15NHlDaUFnSUNCcGJtbDBPaUIwY25WbENpQWdJQ0J1WlhSM2IzSnJYMjF2WkdVNklHaHZjM1FLSUNBZ0lHUmxjR1Z1WkhOZmIyNDZDaUFnSUNBZ0lHOXNiR0Z0WVY5elpYSjJaWEk2Q2lBZ0lDQWdJQ0FnWTI5dVpHbDBhVzl1T2lCelpYSjJhV05sWDJobFlXeDBhSGtLSUNBZ0lHaGxZV3gwYUdOb1pXTnJPZ29nSUNBZ0lDQjBaWE4wT2lCYklrTk5SQzFUU0VWTVRDSXNJQ0p2Ykd4aGJXRWdjMmh2ZHlCc2JHRnRZVE11TWlKZENpQWdJQ0FnSUhOMFlYSjBYM0JsY21sdlpEb2dNbTB6TUhNS0lDQWdJQ0FnYVc1MFpYSjJZV3c2SURNd2N3b2dJQ0FnSUNCeVpYUnlhV1Z6T2lBeiIsCiAgICAgICJzaG91bGRfYXR0ZXN0IjogdHJ1ZSwKICAgICAgInNob3VsZF9kZWNyeXB0IjogZmFsc2UKICAgIH0KICBdCn0=",
+        instance: "c6g.2xlarge",
+        memory: 8192,
+        name: "",
+        region: "ap-south-1",
+        url: "https://artifacts.marlin.org/oyster/eifs/base-blue_v3.0.0_linux_arm64.eif",
+        vcpu: 4
+      };
+
+      const metadata = JSON.stringify(metadataObj);
+      const rate = BigInt("53717366027832"); 
+
+      const { receipt, jobId } = await createNewOysterJob(
+        metadata,
+        operator,
+        rate,
+        balance,
+        signer
       );
 
-      setResult(verificationResult);
-      
+      setMessage(`Job created in tx: ${receipt.transactionHash}`);
+
+      if (jobId) {
+        setMessage(`Job created! Waiting 3 minutes before fetching IP...`);
+        // Wait 3 minutes (180000 ms)
+        await new Promise((res) => setTimeout(res, 180000));
+
+        const foundIp = await fetchJobIp(jobId);
+        globalJobIp = foundIp;
+      }
     } catch (err: any) {
-      console.error('Error calling verifyEnclaveResponse:', err);
-      setError(err.message || 'Failed to verify enclave response');
+      console.error(err);
+      setMessage(`Error: ${err.message}`);
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div className="flex flex-col items-center justify-center min-h-screen p-6">
-      <div className="text-center max-w-2xl">
-        <h1 className="text-3xl font-bold mb-6">Deploy on Oyster</h1>
-        <p className="text-gray-600 mb-8">
-          Test the Enclave Response Verification using the deployed smart contract
-        </p>
-        
-        <button
-          onClick={handleDeployOnOyster}
-          disabled={loading}
-          className="bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white font-bold py-3 px-6 rounded-md shadow mb-6"
-        >
-          {loading ? 'Verifying...' : 'Deploy on Oyster'}
-        </button>
-
-        {error && (
-          <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-4">
-            <p className="font-bold">Error:</p>
-            <p>{error}</p>
-          </div>
-        )}
-
-        {result !== null && (
-          <div className="bg-gray-50 border rounded-lg p-6 text-left">
-            <h3 className="text-lg font-semibold mb-4">Verification Result:</h3>
-            
-            <div className="mb-4">
-              <p className="font-medium text-blue-700">Smart Contract Verification:</p>
-              <p className={`text-lg font-bold p-3 rounded ${result ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
-                {result ? '✅ Valid Signature' : '❌ Invalid Signature'}
-              </p>
-            </div>
-
-            <div className="text-sm text-gray-600">
-              <p><strong>Contract Address:</strong> 0xBe4784F8c75949c7D543FaE2995061B853BfbAeD</p>
-              <p><strong>Function:</strong> verifyEnclaveResponse</p>
-              <p><strong>Result:</strong> {result.toString()}</p>
-            </div>
-
-            <div className="mt-4 text-xs text-gray-500">
-              <p>Check browser console for detailed logs of the verification process.</p>
-            </div>
-          </div>
-        )}
-      </div>
+    <div className="flex flex-col items-center justify-center h-screen space-y-4">
+      <button
+        onClick={handleDeploy}
+        disabled={loading}
+        className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-6 rounded-md shadow"
+      >
+        {loading ? "Deploying Job..." : "Deploy on Oyster"}
+      </button>
+      {message && <p className="text-gray-700">{message}</p>}
+      {ip && <p className="text-green-600">Server IP: {ip}</p>}
     </div>
   );
 }
