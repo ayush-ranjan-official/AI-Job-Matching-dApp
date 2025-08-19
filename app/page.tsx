@@ -95,7 +95,7 @@ export default function Home() {
         </div>
       </div>
       
-      <div className="mt-12 text-center max-w-4xl mx-auto">
+      {/* <div className="mt-12 text-center max-w-4xl mx-auto">
         <h2 className="text-2xl font-semibold mb-4">Test Oyster API</h2>
         <p className="text-gray-600 mb-6">Test the Marlin Oyster CVM Llama API integration</p>
         
@@ -245,7 +245,7 @@ export default function Home() {
             </div>
           </div>
         )}
-      </div>
+      </div> */}
       
       <div className="mt-12 text-center">
         <h2 className="text-2xl font-semibold mb-4">How It Works</h2>
