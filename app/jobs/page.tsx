@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
-import { getContract } from '../utils/web3';
+import { getAllActiveJobs } from '../utils/web3';
 
 interface Job {
   id: number;
@@ -25,23 +25,10 @@ export default function Jobs() {
       try {
         setLoading(true);
         
-        // Get contract instance
-        const contract = await getContract(false);
-        if (!contract) {
-          throw new Error("Failed to get contract instance.");
-        }
-
-        // Get all job IDs (this is a simplified approach)
-        // In a full implementation, we'd have a way to query all jobs or page through them
-        const jobCount = await contract.jobIdCounter();
-        const jobPromises = [];
-        
-        for (let i = 1; i <= jobCount; i++) {
-          jobPromises.push(fetchJobDetails(contract, i));
-        }
-        
-        const fetchedJobs = await Promise.all(jobPromises);
-        setJobs(fetchedJobs.filter(job => job !== null));
+        // Use the utility function to get all active jobs
+        const fetchedJobs = await getAllActiveJobs();
+        console.log('Fetched jobs:', fetchedJobs);
+        setJobs(fetchedJobs);
         
       } catch (err: any) {
         console.error("Error fetching jobs:", err);
@@ -53,29 +40,6 @@ export default function Jobs() {
 
     fetchJobs();
   }, []);
-
-  const fetchJobDetails = async (contract: any, jobId: number) => {
-    try {
-      const jobData = await contract.getJobPosting(jobId);
-      
-      // Skip non-active jobs
-      if (!jobData.isActive) return null;
-      
-      return {
-        id: jobId,
-        employer: jobData.employer,
-        title: jobData.title,
-        description: jobData.description,
-        requiredSkills: jobData.requiredSkills,
-        location: jobData.location,
-        salary: Number(jobData.salary),
-        isActive: jobData.isActive
-      };
-    } catch (err) {
-      console.error(`Error fetching job ${jobId}:`, err);
-      return null;
-    }
-  };
 
   if (loading) {
     return (

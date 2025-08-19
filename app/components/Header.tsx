@@ -58,8 +58,10 @@ export default function Header() {
         <Link href="/post-job" className="hover:text-blue-300 mx-2 no-underline">
         Post a Job&nbsp;&nbsp;
         </Link>
-        <Link href="/matches" className="hover:text-blue-300 mx-2 no-underline">
-        View Matches&nbsp;&nbsp;
+        <Link href="/matches" className="hover:text-blue-300 mx-2 no-underline relative">
+          View Matches 
+          <span className="absolute -top-1 -right-1 bg-purple-600 text-xs px-1 rounded-full">AI</span>
+          &nbsp;&nbsp;
         </Link>
         
         {isConnected ? (
