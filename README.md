@@ -172,12 +172,6 @@ npm run dev
 - **Enclave Public Key**: Retrieved through attestation process
 - **Smart Contract**: `LlamaResponseVerify.sol` contract performs cryptographic verification
 
-### API Endpoints
-- `/api/ai-candidates` - AI-powered candidate matching with verification data
-- `/api/attestation` - Enclave attestation and public key retrieval
-- `/api/generate` - Direct LLM generation with header extraction
-- `/api/oyster` - Oyster API proxy with header forwarding
-
 ## 🛠️ Development
 
 ### Smart Contract Architecture
